@@ -20,6 +20,8 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ResultSlot;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.EnderChestBlock;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
@@ -40,6 +42,20 @@ public final class ContainerHandlers {
 			LocalPlayer p = ClientMc.player();
 			MultiPlayerGameMode gm = ClientMc.gameMode();
 			BlockPos pos = BlockPos.containing(ctx.getDouble("x"), ctx.getDouble("y"), ctx.getDouble("z"));
+			// The server ignores clicks beyond the interaction range: do not send one (or report a client prediction).
+			if (!ClientMc.canReachBlock(p, pos, 1.0)) {
+				JsonObject o = new JsonObject();
+				o.addProperty("result", "OUT_OF_REACH");
+				o.addProperty("note", String.format(Locale.ROOT,
+						"The block is beyond the interaction range (%.1f blocks); move closer first.", p.blockInteractionRange()));
+				return o;
+			}
+			// Anything else would use the held item on the block (placing a held block) or toggle it (a lever).
+			BlockState state = ClientMc.level().getBlockState(pos);
+			if (!opensMenu(state, pos)) {
+				throw RpcException.badRequest(BuiltInRegistries.BLOCK.getKey(state.getBlock()) + " at " + pos.toShortString()
+						+ " has no menu to open; container.open only opens containers and workstations.");
+			}
 			Vec3 eye = p.getEyePosition();
 			Direction face = InteractHandlers.faceToward(pos, eye);
 			Vec3 hit = new Vec3(pos.getX() + 0.5 + face.getStepX() * 0.5, pos.getY() + 0.5 + face.getStepY() * 0.5, pos.getZ() + 0.5 + face.getStepZ() * 0.5);
@@ -139,6 +155,12 @@ public final class ContainerHandlers {
 		o.addProperty("size", size);
 		o.add("slots", slots);
 		return o;
+	}
+
+	/** Whether a right-click on the block opens a menu: a container, a workstation or a machine. */
+	private static boolean opensMenu(BlockState state, BlockPos pos) throws RpcException {
+		// The ender chest opens the player's own storage without a menu provider of its own.
+		return state.getMenuProvider(ClientMc.level(), pos) != null || state.getBlock() instanceof EnderChestBlock;
 	}
 
 	/** The open screen. It moved from {@code Minecraft.screen} to {@code Gui.screen()} in 26.2. */

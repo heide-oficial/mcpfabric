@@ -41,7 +41,7 @@ tested without a game. The mod only gained what needs game access:
 | `perception.scan` | client | per-chunk surface height, biome and ore/log counts; points of interest (containers, workstations, beds, portals, spawners); positions of requested blocks |
 | `perception.blocks` | client | block ids at positions, optionally with the best hotbar tool and whether it can harvest the block |
 | `perception.entities` | client | nearby dropped items, hostile/passive mobs and players, nearest first |
-| `container.open/state/click/transfer/close` | client | open a block's menu, read it, click or shift-click slots, move items in bulk |
+| `container.open/state/click/transfer/close` | client | open a block's menu (within reach; a block with no menu is refused), read it, click or shift-click slots, move items in bulk |
 | `recipes.query` | client | recipes producing given items: type, result, one list of accepted ids per slot, `known` (unlocked) |
 | `craft.place` | client | place a recipe into the open crafting grid through the recipe book (capability group `crafting`, which needs `enablePlayerControl`) |
 | `interact.stopBreaking` | client | stop an unfinished survival mining action |
