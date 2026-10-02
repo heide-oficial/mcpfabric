@@ -18,7 +18,8 @@ import { loadConfig, type ServerConfig } from "./config.js";
 import { BridgeClient, BridgeError, BridgeUnreachableError } from "./bridge.js";
 import { TOOLS, type ToolDef } from "./tools.js";
 import { isLocalRequest } from "./local-request.js";
-import { AgentRuntime, defaultDbPath } from "./agent/runtime.js";
+import { sqliteAvailable } from "./agent/db.js";
+import { LazyAgentRuntime, defaultDbPath } from "./agent/runtime.js";
 import { AGENT_TOOLS, AgentSession } from "./agent/tools.js";
 
 // dist/index.js -> ../package.json, so the reported version always matches the published package.
@@ -104,7 +105,7 @@ function registerTools(server: McpServer, bridge: BridgeClient): void {
   }
 }
 
-function registerAgentTools(server: McpServer, runtime: AgentRuntime): void {
+function registerAgentTools(server: McpServer, agent: LazyAgentRuntime): void {
   const session = new AgentSession();
   for (const def of AGENT_TOOLS) {
     const config = {
@@ -115,7 +116,7 @@ function registerAgentTools(server: McpServer, runtime: AgentRuntime): void {
     };
     const handler = async (args: Record<string, unknown>): Promise<CallToolResult> => {
       try {
-        const text = await def.run(runtime, session, args ?? {});
+        const text = await def.run(agent.get(), session, args ?? {});
         return { content: [{ type: "text", text }] };
       } catch (err) {
         return errorResult(err);
@@ -138,24 +139,24 @@ const AGENT_INSTRUCTIONS =
   "(travel_to, explore, collect_blocks, craft_item) run as background jobs — follow them with job_status " +
   "and do not drive movement manually while one runs.";
 
-function buildServer(bridge: BridgeClient, runtime: AgentRuntime | undefined): McpServer {
+function buildServer(bridge: BridgeClient, agent: LazyAgentRuntime | undefined): McpServer {
   const server = new McpServer(
     { name: "mcpfabric", version: PKG_VERSION },
-    { instructions: BASE_INSTRUCTIONS + (runtime ? AGENT_INSTRUCTIONS : "") },
+    { instructions: BASE_INSTRUCTIONS + (agent ? AGENT_INSTRUCTIONS : "") },
   );
   registerTools(server, bridge);
-  if (runtime) registerAgentTools(server, runtime);
+  if (agent) registerAgentTools(server, agent);
   return server;
 }
 
-async function runStdio(bridge: BridgeClient, runtime: AgentRuntime | undefined): Promise<void> {
-  const server = buildServer(bridge, runtime);
+async function runStdio(bridge: BridgeClient, agent: LazyAgentRuntime | undefined): Promise<void> {
+  const server = buildServer(bridge, agent);
   const transport = new StdioServerTransport();
   await server.connect(transport);
   log(`stdio transport ready (bridge: ${process.env.MCPFABRIC_URL ?? "http://127.0.0.1:25599"})`);
 }
 
-async function runHttp(bridge: BridgeClient, runtime: AgentRuntime | undefined, cfg: ServerConfig): Promise<void> {
+async function runHttp(bridge: BridgeClient, agent: LazyAgentRuntime | undefined, cfg: ServerConfig): Promise<void> {
   // Stateful streamable-HTTP: one transport+server per session id.
   const sessions = new Map<string, { server: McpServer; transport: StreamableHTTPServerTransport; lastSeen: number }>();
 
@@ -211,7 +212,7 @@ async function runHttp(bridge: BridgeClient, runtime: AgentRuntime | undefined, 
       transport.onclose = () => {
         if (transport.sessionId) sessions.delete(transport.sessionId);
       };
-      const server = buildServer(bridge, runtime);
+      const server = buildServer(bridge, agent);
       await server.connect(transport);
       entry = { server, transport, lastSeen: Date.now() };
     }
@@ -233,22 +234,23 @@ async function main(): Promise<void> {
     .then((info) => log("connected to bridge:", JSON.stringify(info)))
     .catch((err) => log("bridge not reachable yet:", (err as Error).message));
 
-  let runtime: AgentRuntime | undefined;
+  let agent: LazyAgentRuntime | undefined;
   if (cfg.agent) {
     const dbPath = cfg.dataDir ? defaultDbPath({ MCPFABRIC_DATA_DIR: cfg.dataDir }) : defaultDbPath();
-    try {
-      runtime = new AgentRuntime(bridge, { dbPath, ...(cfg.world ? { worldOverride: cfg.world } : {}) });
-      log(`agent runtime ready (memory: ${dbPath})`);
-    } catch (err) {
+    if (sqliteAvailable()) {
+      // The database is created by the first agent tool call, not here: starting the server writes nothing.
+      agent = new LazyAgentRuntime(bridge, { dbPath, ...(cfg.world ? { worldOverride: cfg.world } : {}) });
+      log(`agent runtime ready (memory: ${dbPath}, opened on the first agent tool call)`);
+    } else {
       // e.g. a Node build without node:sqlite: keep serving the plain bridge tools.
-      log("agent runtime disabled:", (err as Error).message);
+      log("agent runtime disabled: this Node.js build has no node:sqlite");
     }
   }
 
   if (cfg.transport === "http") {
-    await runHttp(bridge, runtime, cfg);
+    await runHttp(bridge, agent, cfg);
   } else {
-    await runStdio(bridge, runtime);
+    await runStdio(bridge, agent);
   }
 }
 

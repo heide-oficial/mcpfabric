@@ -119,3 +119,27 @@ export class AgentRuntime {
     this.db.close();
   }
 }
+
+/**
+ * The runtime of a server process, created on first use: starting the server opens no database, so a
+ * client that never calls an agent tool leaves no `agent.db` behind.
+ */
+export class LazyAgentRuntime {
+  private rt?: AgentRuntime;
+
+  constructor(
+    private readonly bridge: Bridge,
+    private readonly opts: RuntimeOptions,
+  ) {}
+
+  /** The runtime, opening the database on the first call. */
+  get(): AgentRuntime {
+    this.rt ??= new AgentRuntime(this.bridge, this.opts);
+    return this.rt;
+  }
+
+  /** The runtime if an agent tool already created it; never opens the database. */
+  created(): AgentRuntime | undefined {
+    return this.rt;
+  }
+}

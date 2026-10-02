@@ -10,8 +10,9 @@ work across many sessions:
 - **a crafting planner** over the game's own recipes, vanilla and modded;
 - **background jobs** that run multi-step actions without the model driving every tick.
 
-All of it is stored per world in one SQLite file (`~/.mcpfabric/agent.db`). A new conversation can
-pick up where the last one stopped. Call `agent_brief` first.
+All of it is stored per world in one SQLite file (`~/.mcpfabric/agent.db`), created by the first
+agent tool call: starting the server writes nothing. A new conversation can pick up where the last
+one stopped. Call `agent_brief` first.
 
 ## Where things live
 
@@ -108,7 +109,7 @@ keep pushing the bot back until navigation gives up.
 | Variable | Default | Meaning |
 |---|---|---|
 | `MCPFABRIC_AGENT` | on | `0` / `false` / `off` serves only the bridge tools |
-| `MCPFABRIC_DATA_DIR` | `~/.mcpfabric` | where `agent.db` lives |
+| `MCPFABRIC_DATA_DIR` | `~/.mcpfabric` | where `agent.db` lives (created by the first agent tool call) |
 | `MCPFABRIC_WORLD` | from the game | force a world id (e.g. to share memory between two saves) |
 
 It requires Node.js ≥ 22.16 for `node:sqlite` with FTS5. From Node 24.15 on there is no

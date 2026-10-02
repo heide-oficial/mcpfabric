@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { z } from "zod";
 
 import { JobManager } from "../src/agent/jobs.js";
-import { AgentRuntime } from "../src/agent/runtime.js";
+import { AgentRuntime, LazyAgentRuntime } from "../src/agent/runtime.js";
 import { AGENT_TOOLS, AgentSession } from "../src/agent/tools.js";
 import { FakeWorld, vanillaRecipes } from "./fake-world.js";
 
@@ -156,6 +159,23 @@ test("travel_to reaches a remembered place; unreachable targets fail cleanly", a
   const job = await tool("travel_to", { x: -200, z: 500, waitSeconds: 0 });
   assert.match(job, /\[running\]/);
   assert.match(await tool("job_cancel"), /cancelled job/);
+});
+
+test("the agent database is opened by the first use of the runtime, not before", () => {
+  const dir = mkdtempSync(join(tmpdir(), "mcpfabric-agent-"));
+  try {
+    const dbPath = join(dir, "data", "agent.db");
+    const agent = new LazyAgentRuntime(new FakeWorld(), { dbPath });
+    assert.equal(agent.created(), undefined);
+    assert.equal(existsSync(dbPath), false);
+    const rt = agent.get();
+    assert.equal(existsSync(dbPath), true);
+    assert.equal(agent.get(), rt, "one runtime per server");
+    assert.equal(agent.created(), rt);
+    rt.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("job manager: one job at a time, cancel, wait", async () => {

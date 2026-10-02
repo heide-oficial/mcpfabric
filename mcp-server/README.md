@@ -32,7 +32,7 @@ MCPFABRIC_URL=http://127.0.0.1:25599 MCPFABRIC_TOKEN=<token> node dist/index.js
 | `MCPFABRIC_TRANSPORT`  | `stdio`                  | `stdio` (default) or `http`.                    |
 | `MCPFABRIC_HTTP_PORT`  | `25600`                  | Port for the streamable-HTTP transport (`/mcp`).|
 | `MCPFABRIC_AGENT`      | on                       | `0`/`false`/`off` disables the agent runtime tools. |
-| `MCPFABRIC_DATA_DIR`   | `~/.mcpfabric`           | Directory of the agent database (`agent.db`).   |
+| `MCPFABRIC_DATA_DIR`   | `~/.mcpfabric`           | Directory of the agent database (`agent.db`), created by the first agent tool call. |
 | `MCPFABRIC_WORLD`      | reported by the game     | Force the world id that keys agent memory.      |
 
 ## Architecture

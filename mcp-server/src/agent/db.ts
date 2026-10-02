@@ -34,6 +34,16 @@ function loadSqlite(): typeof import("node:sqlite") {
   return sqlite;
 }
 
+/** Whether this Node.js build has `node:sqlite`. Loading the module creates no file. */
+export function sqliteAvailable(): boolean {
+  try {
+    loadSqlite();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Ordered schema migrations; index + 1 is the resulting `user_version`. */
 const MIGRATIONS: string[] = [
   `
