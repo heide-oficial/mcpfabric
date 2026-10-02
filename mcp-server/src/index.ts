@@ -156,6 +156,9 @@ async function runStdio(bridge: BridgeClient, runtime: AgentRuntime | undefined)
   const server = buildServer(bridge, runtime);
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  // The SDK's stdio transport does not notice when the client closes our stdin (it quit or crashed
+  // without killing us): close it then, so server.onclose cancels the session's job.
+  process.stdin.once("end", () => void transport.close());
   log(`stdio transport ready (bridge: ${process.env.MCPFABRIC_URL ?? "http://127.0.0.1:25599"})`);
 }
 
