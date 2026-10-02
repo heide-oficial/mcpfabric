@@ -43,9 +43,12 @@ export interface JobContext {
 const LOG_LINES = 40;
 const HISTORY = 10;
 
+/** No job runs longer than this, so nothing keeps driving the player for hours. */
+export const JOB_TIME_LIMIT_MS = 60 * 60 * 1000;
+
 export class JobManager {
   private nextId = 1;
-  private current?: { job: Job; abort: AbortController; done: Promise<void> };
+  private current?: { job: Job; abort: AbortController; done: Promise<void>; owner?: object };
   private readonly history: Job[] = [];
 
   constructor(
@@ -53,13 +56,16 @@ export class JobManager {
     private readonly onFinish: (job: Job) => void = () => {},
     /** Called when a job stops for any reason, to release the body (stop navigation, ...). */
     private readonly onStop: () => Promise<void> = async () => {},
+    /** Wall-clock limit of a job: past it, the job fails with that reason. */
+    private readonly timeLimitMs: number = JOB_TIME_LIMIT_MS,
   ) {}
 
   running(): Job | undefined {
     return this.current?.job;
   }
 
-  start(kind: string, summary: string, run: (ctx: JobContext) => Promise<string>): Job {
+  /** Start a job. `owner` (an MCP session) can cancel it with {@link cancelOwnedBy} when it goes away. */
+  start(kind: string, summary: string, run: (ctx: JobContext) => Promise<string>, owner?: object): Job {
     if (this.current) {
       throw new Error(`Job #${this.current.job.id} (${this.current.job.kind}) is still running; job_cancel it first.`);
     }
@@ -92,6 +98,13 @@ export class JobManager {
       },
     };
 
+    let timedOut = false;
+    const limitTimer = setTimeout(() => {
+      timedOut = true;
+      abort.abort();
+    }, this.timeLimitMs);
+    limitTimer.unref();
+
     const done = (async () => {
       try {
         job.result = await run(ctx);
@@ -105,6 +118,12 @@ export class JobManager {
           job.result = err instanceof Error ? err.message : String(err);
         }
       } finally {
+        clearTimeout(limitTimer);
+        if (timedOut) {
+          const ms = this.timeLimitMs;
+          job.state = "failed";
+          job.result = `stopped at the time limit of ${ms >= 60_000 ? `${Math.round(ms / 60_000)} min` : `${ms} ms`}`;
+        }
         job.endedAt = Date.now();
         this.current = undefined;
         this.history.unshift(job);
@@ -123,7 +142,7 @@ export class JobManager {
         }
       }
     })();
-    this.current = { job, abort, done };
+    this.current = { job, abort, done, ...(owner ? { owner } : {}) };
     return job;
   }
 
@@ -140,6 +159,13 @@ export class JobManager {
     cur.abort.abort();
     await cur.done;
     return cur.job;
+  }
+
+  /** Cancel the running job if `owner` started it, e.g. an MCP session that closed. */
+  async cancelOwnedBy(owner: object): Promise<Job | undefined> {
+    const cur = this.current;
+    if (!cur || cur.owner !== owner) return undefined;
+    return this.cancel(cur.job.id);
   }
 
   /** Wait until the job ends or `timeoutMs` passes, whichever is first. */

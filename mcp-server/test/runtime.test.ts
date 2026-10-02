@@ -19,7 +19,7 @@ function setup(world = new FakeWorld()) {
     // Parse like the MCP SDK does, so schema defaults apply and invalid schemas fail the test.
     return def.run(rt, session, z.object(def.inputSchema).parse(args));
   };
-  return { world, rt, tool };
+  return { world, rt, tool, session };
 }
 
 test("tool names are unique and do not clash with the bridge catalogue", async () => {
@@ -191,4 +191,38 @@ test("job manager: one job at a time, cancel, wait", async () => {
   assert.equal(jobs.get(job.id)!.state, "cancelled");
   const quick = jobs.start("quick", "q", async () => "ok");
   assert.equal((await jobs.wait(quick.id, 1000))!.result, "ok");
+});
+
+test("job manager: a job fails at its time limit", async () => {
+  const jobs = new JobManager(undefined, undefined, 50);
+  const job = jobs.start("slow", "sleeps", async (ctx) => {
+    await ctx.sleep(10_000);
+    return "slept";
+  });
+  const ended = await jobs.wait(job.id, 5000);
+  assert.equal(ended!.state, "failed");
+  assert.match(ended!.result!, /time limit of 50 ms/);
+});
+
+test("job manager: a closed session cancels only the job it started", async () => {
+  const jobs = new JobManager();
+  const mine = {};
+  const job = jobs.start("wait", "sleep", async (ctx) => {
+    await ctx.sleep(10_000);
+    return "slept";
+  }, mine);
+  assert.equal(await jobs.cancelOwnedBy({}), undefined);
+  assert.equal(jobs.get(job.id)!.state, "running");
+  assert.equal((await jobs.cancelOwnedBy(mine))!.id, job.id);
+  assert.equal(jobs.get(job.id)!.state, "cancelled");
+});
+
+test("a job started through a tool belongs to that MCP session", async () => {
+  const { world, rt, tool, session } = setup();
+  world.unreachable = new Set(Array.from({ length: 400 }, (_, i) => i).flatMap((i) => [`${i},64,0`]));
+  assert.match(await tool("travel_to", { x: -200, z: 500, waitSeconds: 0 }), /\[running\]/);
+  assert.equal(await rt.jobs.cancelOwnedBy(new AgentSession()), undefined);
+  assert.equal(rt.jobs.running()?.kind, "travel");
+  assert.equal((await rt.jobs.cancelOwnedBy(session))?.state, "cancelled");
+  assert.equal(rt.jobs.running(), undefined);
 });

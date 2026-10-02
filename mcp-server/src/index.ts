@@ -105,8 +105,7 @@ function registerTools(server: McpServer, bridge: BridgeClient): void {
   }
 }
 
-function registerAgentTools(server: McpServer, agent: LazyAgentRuntime): void {
-  const session = new AgentSession();
+function registerAgentTools(server: McpServer, agent: LazyAgentRuntime, session: AgentSession): void {
   for (const def of AGENT_TOOLS) {
     const config = {
       title: def.title,
@@ -139,20 +138,32 @@ const AGENT_INSTRUCTIONS =
   "(travel_to, explore, collect_blocks, craft_item) run as background jobs — follow them with job_status " +
   "and do not drive movement manually while one runs.";
 
-function buildServer(bridge: BridgeClient, agent: LazyAgentRuntime | undefined): McpServer {
+/** One MCP server per client session; its agent session (if any) owns the job that client starts. */
+function buildServer(bridge: BridgeClient, agent: LazyAgentRuntime | undefined): { server: McpServer; session?: AgentSession } {
   const server = new McpServer(
     { name: "mcpfabric", version: PKG_VERSION },
     { instructions: BASE_INSTRUCTIONS + (agent ? AGENT_INSTRUCTIONS : "") },
   );
   registerTools(server, bridge);
-  if (agent) registerAgentTools(server, agent);
-  return server;
+  if (!agent) return { server };
+  const session = new AgentSession();
+  registerAgentTools(server, agent, session);
+  return { server, session };
+}
+
+/** A client went away: stop the job it started, so nothing keeps driving the player for it. */
+async function stopSessionJob(agent: LazyAgentRuntime | undefined, session: AgentSession | undefined): Promise<void> {
+  if (!session) return;
+  const job = await agent?.created()?.jobs.cancelOwnedBy(session);
+  if (job) log(`cancelled job #${job.id} (${job.kind}): the MCP session that started it closed`);
 }
 
 async function runStdio(bridge: BridgeClient, agent: LazyAgentRuntime | undefined): Promise<void> {
-  const server = buildServer(bridge, agent);
+  const { server, session } = buildServer(bridge, agent);
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  // The client closed our stdin: it is gone.
+  process.stdin.once("end", () => void stopSessionJob(agent, session));
   log(`stdio transport ready (bridge: ${process.env.MCPFABRIC_URL ?? "http://127.0.0.1:25599"})`);
 }
 
@@ -209,10 +220,12 @@ async function runHttp(bridge: BridgeClient, agent: LazyAgentRuntime | undefined
           sessions.set(id, entry!);
         },
       });
+      const { server, session } = buildServer(bridge, agent);
+      // Closed by DELETE, by the idle sweep or by the client: either way its job must not keep running.
       transport.onclose = () => {
         if (transport.sessionId) sessions.delete(transport.sessionId);
+        void stopSessionJob(agent, session);
       };
-      const server = buildServer(bridge, agent);
       await server.connect(transport);
       entry = { server, transport, lastSeen: Date.now() };
     }

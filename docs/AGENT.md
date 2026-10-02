@@ -70,6 +70,10 @@ so earlier failures inform later plans), `skill` (a procedure that worked).
 You can also pass `waitSeconds` to block for a while. Follow a job with `job_status`, which
 long-polls, and stop it with `job_cancel`. Only one job runs at a time, because there is one body.
 
+A job belongs to the MCP session that started it. The server cancels it when that session closes:
+an HTTP session ends with `DELETE` or after 30 idle minutes, and a stdio client closes the server's
+input. No job runs longer than one hour.
+
 Every job checks health before each step. It stops with a clear reason when health drops to the
 limit (6 by default), so the model can decide whether to retreat, eat or fight.
 
