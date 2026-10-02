@@ -41,6 +41,19 @@ class RpcContextTest {
 	}
 
 	@Test
+	void eachItemOfACoordinateListIsChecked() throws RpcException {
+		assertBadRequest("positions[0]", () -> ctx("{\"positions\": [5]}").getVec3List("positions"));
+		assertBadRequest("positions[1]", () -> ctx("{\"positions\": [{\"x\": 1, \"y\": 2, \"z\": 3}, \"a\"]}").getVec3List("positions"));
+		assertBadRequest("positions[0].x", () -> ctx("{\"positions\": [{\"x\": \"a\", \"y\": 2, \"z\": 3}]}").getVec3List("positions"));
+		assertBadRequest("positions[0].x", () -> ctx("{\"positions\": [{\"y\": 2, \"z\": 3}]}").getVec3List("positions"));
+		assertBadRequest("positions", () -> ctx("{\"positions\": 5}").getVec3List("positions"));
+		assertBadRequest("positions", () -> ctx("{}").getVec3List("positions"));
+		var list = ctx("{\"positions\": [{\"x\": 1, \"y\": \"2\", \"z\": -3}]}").getVec3List("positions");
+		assertEquals(1, list.size());
+		assertArrayEquals(new double[] {1, 2, -3}, list.get(0));
+	}
+
+	@Test
 	void missingRequiredParamsAreBadRequests() {
 		assertBadRequest("uuid", () -> ctx("{}").getString("uuid"));
 		assertBadRequest("uuid", () -> ctx("{\"uuid\": null}").getString("uuid"));

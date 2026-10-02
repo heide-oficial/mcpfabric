@@ -63,6 +63,20 @@ public final class RpcContext {
 		return vec3(key, getObject(key));
 	}
 
+	/** A required array of {@code {x, y, z}} objects, as {x, y, z} each. A malformed item is named by its index. */
+	public List<double[]> getVec3List(String key) throws RpcException {
+		require(key);
+		if (!params.get(key).isJsonArray()) throw RpcException.badRequest("Param '" + key + "' must be an array of {x, y, z} objects.");
+		JsonArray a = params.getAsJsonArray(key);
+		List<double[]> out = new ArrayList<>(a.size());
+		for (int i = 0; i < a.size(); i++) {
+			String item = key + "[" + i + "]";
+			if (!a.get(i).isJsonObject()) throw RpcException.badRequest("Param '" + item + "' must be an {x, y, z} object.");
+			out.add(vec3(item, a.get(i).getAsJsonObject()));
+		}
+		return out;
+	}
+
 	// --- optional ----------------------------------------------------------------------------
 
 	public String optString(String key, String def) throws RpcException {
